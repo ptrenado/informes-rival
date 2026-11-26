@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<title>Informes de Rival (3ª RFEF)</title>
+<style>
+*{box-sizing:border-box}html,body{height:100%;margin:0}
+body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:#0b1233;color:#fff;overflow:hidden}
+#login{position:fixed;inset:0;display:grid;place-items:center;padding:16px;background:radial-gradient(1200px 700px at 50% -10%,#4b2a7a 0%,#25317f 45%,#0b1233 100%)}
+.card{width:min(420px,100%);background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.25);border-radius:20px;padding:28px 24px;box-shadow:0 18px 50px rgba(0,0,0,.45);backdrop-filter:blur(6px)}
+h1{margin:0 0 4px;font-size:26px;letter-spacing:.02em}.sub{margin:0 0 20px;opacity:.8;font-size:14px}
+label{display:block;font-size:13px;margin:12px 0 4px;opacity:.9}
+input[type=text],input[type=password]{width:100%;padding:12px 14px;border-radius:10px;border:1px solid rgba(255,255,255,.35);background:rgba(0,0,0,.28);color:#fff;font-size:16px}
+input:focus{outline:2px solid #8fb0ff;border-color:transparent}
+.rem{display:flex;gap:8px;align-items:center;margin:14px 0 4px;font-size:14px}
+button{width:100%;margin-top:16px;padding:13px;border:0;border-radius:10px;background:#fff;color:#16205f;font-weight:700;font-size:16px;cursor:pointer}
+button:disabled{opacity:.6;cursor:wait}
+#err{min-height:20px;margin-top:12px;color:#ffb4ab;font-size:14px}
+#msg{margin-top:10px;font-size:14px;opacity:.85}
+#app{position:fixed;inset:0;width:100%;height:100%;border:0;display:none;background:#fff}
+#upd{position:fixed;left:50%;top:10px;transform:translateX(-50%);z-index:10;background:#1E7A4C;color:#fff;padding:10px 18px;border-radius:999px;font-weight:600;box-shadow:0 6px 20px rgba(0,0,0,.35);display:none;font-size:15px}
+</style>
+</head>
+<body>
+<div id="login"><form class="card" id="f" autocomplete="on">
+<h1>Informes de Rival</h1><p class="sub">3ª RFEF · Grupo 6 — acceso del staff</p>
+<label for="u">Usuario</label><input id="u" name="username" type="text" autocomplete="username" autocapitalize="none" required>
+<label for="p">Contraseña</label><input id="p" name="password" type="password" autocomplete="current-password" required>
+<div class="rem"><input id="r" type="checkbox" checked><label for="r" style="margin:0">Recordar en este dispositivo</label></div>
+<button id="go" type="submit">Entrar</button><div id="err" role="alert"></div><div id="msg"></div>
+</form></div>
+<iframe id="app" title="Informes de Rival"></iframe>
+<div id="upd">✓ Herramienta actualizada</div>
+<script>
+(function(){
+var $=function(i){return document.getElementById(i)};
+var b64=function(s){return Uint8Array.from(atob(s),function(c){return c.charCodeAt(0)})};
+var b64s=function(u){var s='';for(var i=0;i<u.length;i++)s+=String.fromCharCode(u[i]);return btoa(s)};
+var LS=function(k,v){try{if(v===undefined)return localStorage.getItem(k);if(v===null)localStorage.removeItem(k);else localStorage.setItem(k,v)}catch(e){return null}};
+var KEYS=null, VER=null;
+function say(t){$('msg').textContent=t||''}
+function fail(t){$('err').textContent=t||'';$('go').disabled=false;say('')}
+async function getJSON(u){var r=await fetch(u+(u.indexOf('?')<0?'?t=':'&t=')+Date.now(),{cache:'no-store'});if(!r.ok)throw new Error(u);return r.json()}
+async function bitsFor(user,pass){
+  var raw=new TextEncoder().encode(user.trim().toLowerCase()+':'+pass);
+  var base=await crypto.subtle.importKey('raw',raw,'PBKDF2',false,['deriveBits']);
+  return new Uint8Array(await crypto.subtle.deriveBits({name:'PBKDF2',salt:b64(KEYS.salt),iterations:KEYS.iter,hash:'SHA-256'},base,256));
+}
+async function openWith(bits){
+  var k=await crypto.subtle.importKey('raw',bits,'AES-GCM',false,['decrypt']);
+  var pk8=await crypto.subtle.decrypt({name:'AES-GCM',iv:b64(KEYS.iv)},k,b64(KEYS.wpriv));
+  var priv=await crypto.subtle.importKey('pkcs8',pk8,{name:'RSA-OAEP',hash:'SHA-256'},false,['decrypt']);
+  var K=await crypto.subtle.decrypt({name:'RSA-OAEP'},priv,b64(VER.wk));
+  var key=await crypto.subtle.importKey('raw',K,'AES-GCM',false,['decrypt']);
+  say('Descargando datos…');
+  var r=await fetch('data.enc?v='+encodeURIComponent(VER.v)); if(!r.ok) throw new Error('data');
+  var buf=new Uint8Array(await r.arrayBuffer());
+  say('Descifrando…');
+  var pt=await crypto.subtle.decrypt({name:'AES-GCM',iv:buf.slice(0,12)},key,buf.slice(12));
+  var txt=await new Response(new Blob([pt]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
+  return JSON.parse(txt);
+}
+function start(payload){
+  window.__PAYLOAD=payload.p; var fr=$('app'); fr.srcdoc=payload.html; fr.style.display='block'; $('login').style.display='none';
+  if(sessionStorage.getItem('fr.upd')){try{sessionStorage.removeItem('fr.upd')}catch(e){} var u=$('upd');u.style.display='block';setTimeout(function(){u.style.display='none'},9000)}
+  var chk=async function(){try{var v=await getJSON('version.json');if(v.v&&v.v!==VER.v){try{sessionStorage.setItem('fr.upd','1')}catch(e){} location.reload()}}catch(e){}};
+  setInterval(function(){if(!document.hidden)chk()},60000);
+  document.addEventListener('visibilitychange',function(){if(!document.hidden)chk()});
+  window.addEventListener('focus',chk);
+}
+async function boot(){
+  if(!window.crypto||!crypto.subtle){fail('Este navegador no permite el acceso seguro. Usa una versión reciente de Chrome, Safari o Edge.');return}
+  try{KEYS=await getJSON('keys.json');VER=await getJSON('version.json')}catch(e){fail('No se pudo conectar. Comprueba la conexión.');return}
+  var saved=LS('fr.k');
+  if(saved){
+    $('go').disabled=true;say('Entrando…');
+    try{var d=await openWith(b64(saved));start(d);return}catch(e){LS('fr.k',null);fail('');say('')}
+  }
+  $('go').disabled=false;
+}
+$('f').addEventListener('submit',async function(ev){
+  ev.preventDefault();$('err').textContent='';$('go').disabled=true;say('Comprobando…');
+  try{
+    var bits=await bitsFor($('u').value,$('p').value), d;
+    try{d=await openWith(bits)}catch(e){ if(e&&e.message==='data'){fail('No se pudieron descargar los datos. Inténtalo de nuevo.');return} fail('Usuario o contraseña incorrectos.');return }
+    if($('r').checked) LS('fr.k',b64s(bits));
+    start(d);
+  }catch(e){fail('Ocurrió un error. Inténtalo de nuevo.')}
+});
+boot();
+})();
+</script>
+</body>
+</html>
